@@ -462,6 +462,8 @@ ssize_t ngtcp2_pkt_decode_stream_frame(ngtcp2_stream *dest,
     if (payloadlen < len) {
       return NGTCP2_ERR_FRAME_ENCODING;
     }
+  } else {
+    len = payloadlen;
   }
 
   p = payload + 1;

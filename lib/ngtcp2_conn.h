@@ -424,4 +424,8 @@ void ngtcp2_conn_update_rtt(ngtcp2_conn *conn, uint64_t rtt,
 
 void ngtcp2_conn_set_loss_detection_timer(ngtcp2_conn *conn);
 
+int ngtcp2_conn_detect_lost_pkt(ngtcp2_conn *conn, ngtcp2_pktns *pktns,
+                                ngtcp2_rcvry_stat *rcs, uint64_t largest_ack,
+                                ngtcp2_tstamp ts);
+
 #endif /* NGTCP2_CONN_H */
