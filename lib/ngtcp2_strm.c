@@ -26,8 +26,11 @@
 
 #include <string.h>
 #include <assert.h>
+#include <stdio.h>
 
 #include "ngtcp2_rtb.h"
+#include "ngtcp2_pkt.h"
+#include "ngtcp2_str.h"
 
 static int offset_less(int64_t lhs, int64_t rhs) { return lhs < rhs; }
 
@@ -128,6 +131,8 @@ int ngtcp2_strm_pop_stream_frame(ngtcp2_strm *strm, ngtcp2_frame_chain **pfrc,
   ngtcp2_frame_chain *frc, *nfrc;
   ngtcp2_ksl_it it = ngtcp2_ksl_begin(&strm->streamfrq);
   int rv;
+  size_t nmerged;
+  size_t datalen;
 
   if (ngtcp2_ksl_it_end(&it)) {
     *pfrc = NULL;
@@ -135,47 +140,104 @@ int ngtcp2_strm_pop_stream_frame(ngtcp2_strm *strm, ngtcp2_frame_chain **pfrc,
   }
 
   frc = ngtcp2_ksl_it_get(&it);
-  rv = ngtcp2_ksl_remove(&strm->streamfrq, NULL, ngtcp2_ksl_it_key(&it));
+  rv =
+      ngtcp2_ksl_remove(&strm->streamfrq, NULL, (int64_t)frc->fr.stream.offset);
   if (rv != 0) {
     return rv;
   }
 
   fr = &frc->fr.stream;
-  if (fr->datalen <= left) {
+
+  if (fr->datacnt == NGTCP2_MAX_STREAM_DATACNT) {
     *pfrc = frc;
     return 0;
   }
 
-  rv = ngtcp2_frame_chain_new(&nfrc, strm->mem);
-  if (rv != 0) {
-    assert(ngtcp2_err_is_fatal(rv));
-    ngtcp2_frame_chain_del(frc, strm->mem);
-    return rv;
+  datalen = ngtcp2_vec_len(fr->data, fr->datacnt);
+  if (datalen > left) {
+    rv = ngtcp2_frame_chain_extralen_new(
+        &nfrc, sizeof(ngtcp2_vec) * (NGTCP2_MAX_STREAM_DATACNT - 1), strm->mem);
+    if (rv != 0) {
+      assert(ngtcp2_err_is_fatal(rv));
+      ngtcp2_frame_chain_del(frc, strm->mem);
+      return rv;
+    }
+
+    rv = ngtcp2_ksl_insert(&strm->streamfrq, NULL, (int64_t)(fr->offset + left),
+                           nfrc);
+    if (rv != 0) {
+      assert(ngtcp2_err_is_fatal(rv));
+      ngtcp2_frame_chain_del(nfrc, strm->mem);
+      ngtcp2_frame_chain_del(frc, strm->mem);
+      return rv;
+    }
+
+    fprintf(stderr, "Split at %zu bytes\n", left);
+
+    nfr = &nfrc->fr.stream;
+    nfr->type = NGTCP2_FRAME_STREAM;
+    nfr->flags = 0;
+    nfr->fin = fr->fin;
+    nfr->stream_id = fr->stream_id;
+    nfr->offset = fr->offset + left;
+    nfr->datacnt = 0;
+
+    ngtcp2_vec_split(fr->data, &fr->datacnt, nfr->data, &nfr->datacnt, left);
+
+    fr->fin = 0;
+
+    *pfrc = frc;
+
+    return 0;
   }
 
-  rv = ngtcp2_ksl_insert(&strm->streamfrq, NULL, (int64_t)(fr->offset + left),
-                         nfrc);
-  if (rv != 0) {
-    assert(ngtcp2_err_is_fatal(rv));
-    ngtcp2_frame_chain_del(nfrc, strm->mem);
-    ngtcp2_frame_chain_del(frc, strm->mem);
-    return rv;
+  left -= datalen;
+
+  for (; !ngtcp2_ksl_it_end(&it);) {
+    nfrc = ngtcp2_ksl_it_get(&it);
+    nfr = &nfrc->fr.stream;
+
+    if (nfr->offset != fr->offset + datalen) {
+      assert(fr->offset + datalen < nfr->offset);
+      break;
+    }
+
+    nmerged = ngtcp2_vec_merge(fr->data, &fr->datacnt, nfr->data, &nfr->datacnt,
+                               left, NGTCP2_MAX_STREAM_DATACNT);
+    if (nmerged == 0) {
+      break;
+    }
+
+    rv = ngtcp2_ksl_remove(&strm->streamfrq, NULL, (int64_t)nfr->offset);
+    if (rv != 0) {
+      ngtcp2_frame_chain_del(frc, strm->mem);
+      return rv;
+    }
+
+    datalen += nmerged;
+    nfr->offset += nmerged;
+    left -= nmerged;
+
+    fprintf(stderr, "Merge %zu bytes\n", nmerged);
+
+    if (nfr->datacnt == 0) {
+      ngtcp2_frame_chain_del(nfrc, strm->mem);
+    } else {
+      rv =
+          ngtcp2_ksl_insert(&strm->streamfrq, NULL, (int64_t)nfr->offset, nfrc);
+      if (rv != 0) {
+        ngtcp2_frame_chain_del(nfrc, strm->mem);
+        ngtcp2_frame_chain_del(frc, strm->mem);
+        return rv;
+      }
+    }
+
+    if (fr->datacnt == NGTCP2_MAX_STREAM_DATACNT || left == 0) {
+      break;
+    }
   }
-
-  nfr = &nfrc->fr.stream;
-  nfr->type = NGTCP2_FRAME_STREAM;
-  nfr->flags = 0;
-  nfr->fin = fr->fin;
-  nfr->stream_id = fr->stream_id;
-  nfr->offset = fr->offset + left;
-  nfr->datalen = fr->datalen - left;
-  nfr->data = fr->data + left;
-
-  fr->datalen = left;
-  fr->fin = 0;
 
   *pfrc = frc;
-
   return 0;
 }
 

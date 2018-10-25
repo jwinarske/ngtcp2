@@ -78,6 +78,10 @@
    a ngtcp2_crypto can include. */
 #define NGTCP2_MAX_CRYPTO_DATACNT 16
 
+/* NGTCP2_MAX_CRYPTO_DATACNT is the maximum number of ngtcp2_vec that
+   a ngtcp2_crypto can include. */
+#define NGTCP2_MAX_STREAM_DATACNT 8
+
 /*
  * ngtcp2_pkt_hd_init initializes |hd| with the given values.  If
  * |dcid| and/or |scid| is NULL, DCID and SCID of |hd| is empty

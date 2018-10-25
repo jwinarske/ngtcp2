@@ -230,8 +230,9 @@ static int call_acked_stream_offset(ngtcp2_rtb_entry *ent, ngtcp2_conn *conn) {
       }
       prev_stream_offset =
           ngtcp2_gaptr_first_gap_offset(&strm->acked_tx_offset);
-      rv = ngtcp2_gaptr_push(&strm->acked_tx_offset, frc->fr.stream.offset,
-                             frc->fr.stream.datalen);
+      rv = ngtcp2_gaptr_push(
+          &strm->acked_tx_offset, frc->fr.stream.offset,
+          ngtcp2_vec_len(frc->fr.stream.data, frc->fr.stream.datacnt));
       if (rv != 0) {
         return rv;
       }
@@ -313,7 +314,7 @@ static int rtb_on_retransmission_timeout_verified(ngtcp2_rtb *rtb,
 
   for (; !ngtcp2_ksl_it_end(&it);) {
     ent = ngtcp2_ksl_it_get(&it);
-    rv = ngtcp2_ksl_remove(&rtb->ents, &it, ngtcp2_ksl_it_key(&it));
+    rv = ngtcp2_ksl_remove(&rtb->ents, &it, (int64_t)ent->hd.pkt_num);
     if (rv != 0) {
       return rv;
     }
@@ -529,7 +530,7 @@ int ngtcp2_rtb_detect_lost_pkt(ngtcp2_rtb *rtb, ngtcp2_frame_chain **pfrc,
 
       for (; !ngtcp2_ksl_it_end(&it);) {
         ent = ngtcp2_ksl_it_get(&it);
-        rv = ngtcp2_ksl_remove(&rtb->ents, &it, ngtcp2_ksl_it_key(&it));
+        rv = ngtcp2_ksl_remove(&rtb->ents, &it, (int64_t)ent->hd.pkt_num);
         if (rv != 0) {
           return rv;
         }
@@ -559,7 +560,7 @@ int ngtcp2_rtb_remove_all(ngtcp2_rtb *rtb, ngtcp2_frame_chain **pfrc) {
     ngtcp2_log_pkt_lost(rtb->log, &ent->hd, ent->ts);
 
     rtb_on_remove(rtb, ent);
-    rv = ngtcp2_ksl_remove(&rtb->ents, &it, ngtcp2_ksl_it_key(&it));
+    rv = ngtcp2_ksl_remove(&rtb->ents, &it, (int64_t)ent->hd.pkt_num);
     if (rv != 0) {
       return rv;
     }

@@ -198,7 +198,8 @@ static void log_fr_stream(ngtcp2_log *log, const ngtcp2_pkt_hd *hd,
       (NGTCP2_LOG_PKT " STREAM(0x%02x) id=0x%" PRIx64 " fin=%d offset=%" PRIu64
                       " len=%" PRIu64 " uni=%d\n"),
       NGTCP2_LOG_FRM_HD_FIELDS(dir), fr->type | fr->flags, fr->stream_id,
-      fr->fin, fr->offset, fr->datalen, (fr->stream_id & 0x2) != 0);
+      fr->fin, fr->offset, ngtcp2_vec_len(fr->data, fr->datacnt),
+      (fr->stream_id & 0x2) != 0);
 }
 
 static void log_fr_ack(ngtcp2_log *log, const ngtcp2_pkt_hd *hd,

@@ -25,6 +25,7 @@
 #include "ngtcp2_str.h"
 
 #include <string.h>
+#include <assert.h>
 
 uint8_t *ngtcp2_cpymem(uint8_t *dest, const uint8_t *src, size_t n) {
   memcpy(dest, src, n);
@@ -45,4 +46,105 @@ uint8_t *ngtcp2_encode_hex(uint8_t *dest, const uint8_t *data, size_t len) {
   *p = '\0';
 
   return dest;
+}
+
+size_t ngtcp2_vec_len(const ngtcp2_vec *vec, size_t n) {
+  size_t i;
+  size_t res = 0;
+
+  for (i = 0; i < n; ++i) {
+    res += vec[i].len;
+  }
+
+  return res;
+}
+
+void ngtcp2_vec_split(ngtcp2_vec *src, size_t *psrccnt, ngtcp2_vec *dst,
+                      size_t *pdstcnt, size_t left) {
+  size_t i;
+  size_t srccnt = *psrccnt;
+
+  for (i = 0; i < srccnt; ++i) {
+    if (left >= src[i].len) {
+      left -= src[i].len;
+      continue;
+    }
+    dst[0].len = src[i].len - left;
+    dst[0].base = src[i].base + left;
+    src[i].len = left;
+    ++i;
+    *psrccnt = i;
+    break;
+  }
+
+  *pdstcnt = srccnt - i;
+  memcpy(dst + 1, src + i, *pdstcnt);
+}
+
+size_t ngtcp2_vec_merge(ngtcp2_vec *dst, size_t *pdstcnt, ngtcp2_vec *src,
+                        size_t *psrccnt, size_t left, size_t maxcnt) {
+  size_t orig_left = left;
+  size_t i;
+  ngtcp2_vec *a, *b;
+
+  assert(maxcnt);
+
+  if (*pdstcnt == 0) {
+    if (*psrccnt == 0) {
+      return 0;
+    }
+
+    a = &dst[0];
+    b = &src[0];
+
+    if (left >= b->len) {
+      *a = *b;
+      ++*pdstcnt;
+      left -= b->len;
+      i = 1;
+    } else {
+      a->len = left;
+      a->base = b->base;
+
+      b->len -= left;
+      b->base += left;
+
+      return left;
+    }
+  } else {
+    i = 0;
+  }
+
+  for (; left && *pdstcnt < maxcnt && i < *psrccnt; ++i) {
+    a = &dst[*pdstcnt - 1];
+    b = &src[i];
+
+    if (left >= b->len) {
+      if (a->base + a->len == b->base) {
+        a->len += b->len;
+      } else {
+        dst[*pdstcnt++] = *b;
+      }
+      left -= b->len;
+      continue;
+    }
+
+    if (a->base + a->len == b->base) {
+      a->len += left;
+    } else {
+      dst[*pdstcnt++].len = left;
+      dst[*pdstcnt++].base = b->base;
+    }
+
+    b->len -= left;
+    b->base += left;
+    left = 0;
+
+    break;
+  }
+
+  memmove(src, src + i, *psrccnt - i);
+  *psrccnt -= i;
+
+  return orig_left - left;
 }
