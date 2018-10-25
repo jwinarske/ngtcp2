@@ -195,5 +195,5 @@ void ngtcp2_strm_clear_stream_frame(ngtcp2_strm *strm) {
 }
 
 int ngtcp2_strm_is_tx_queued(ngtcp2_strm *strm) {
-  return strm->pe.index != UINT64_MAX;
+  return strm->pe.index != SIZE_MAX;
 }
