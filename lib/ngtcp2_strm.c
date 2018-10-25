@@ -26,7 +26,6 @@
 
 #include <string.h>
 #include <assert.h>
-#include <stdio.h>
 
 #include "ngtcp2_rtb.h"
 #include "ngtcp2_pkt.h"
@@ -172,8 +171,6 @@ int ngtcp2_strm_pop_stream_frame(ngtcp2_strm *strm, ngtcp2_frame_chain **pfrc,
       return rv;
     }
 
-    fprintf(stderr, "Split at %zu bytes\n", left);
-
     nfr = &nfrc->fr.stream;
     nfr->type = NGTCP2_FRAME_STREAM;
     nfr->flags = 0;
@@ -217,8 +214,6 @@ int ngtcp2_strm_pop_stream_frame(ngtcp2_strm *strm, ngtcp2_frame_chain **pfrc,
     datalen += nmerged;
     nfr->offset += nmerged;
     left -= nmerged;
-
-    fprintf(stderr, "Merge %zu bytes\n", nmerged);
 
     if (nfr->datacnt == 0) {
       ngtcp2_frame_chain_del(nfrc, strm->mem);

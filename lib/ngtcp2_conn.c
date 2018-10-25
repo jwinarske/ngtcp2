@@ -27,7 +27,6 @@
 #include <string.h>
 #include <assert.h>
 #include <math.h>
-#include <stdio.h>
 
 #include "ngtcp2_ppe.h"
 #include "ngtcp2_macro.h"
@@ -1538,9 +1537,6 @@ frq_finish:
         if (rv != 0) {
           return rv;
         }
-
-        fprintf(stderr, "left=%zu ngtcp2_vec_len(fr)=%zu\n", left,
-                ngtcp2_vec_len(nfrc->fr.stream.data, nfrc->fr.stream.datacnt));
 
         rv = conn_ppe_write_frame(conn, &ppe, &hd, &nfrc->fr);
         if (rv != 0) {
