@@ -41,6 +41,7 @@
 #include "ngtcp2_str.h"
 #include "ngtcp2_pkt.h"
 #include "ngtcp2_log.h"
+#include "ngtcp2_pq.h"
 
 typedef enum {
   /* Client specific handshake states */
@@ -247,7 +248,7 @@ struct ngtcp2_conn {
   ngtcp2_pktns pktns;
   ngtcp2_strm crypto;
   ngtcp2_map strms;
-  ngtcp2_strm *fc_strms;
+  ngtcp2_pq tx_strmq;
   ngtcp2_idtr remote_bidi_idtr;
   ngtcp2_idtr remote_uni_idtr;
   ngtcp2_rcvry_stat rcs;

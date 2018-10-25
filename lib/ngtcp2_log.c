@@ -711,5 +711,5 @@ void ngtcp2_log_info(ngtcp2_log *log, ngtcp2_log_event ev, const char *fmt,
 void ngtcp2_log_tx_cancel(ngtcp2_log *log, const ngtcp2_pkt_hd *hd) {
   ngtcp2_log_info(log, NGTCP2_LOG_EVENT_PKT,
                   "cancel tx pkt %" PRIu64 " type=%s(0x%02x)", hd->pkt_num,
-                  hd->type);
+                  strpkttype(hd), hd->type);
 }
