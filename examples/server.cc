@@ -1073,7 +1073,10 @@ int Handler::init(int fd, const sockaddr *sa, socklen_t salen,
     ngtcp2_conn_set_retry_ocid(conn_, ocid);
   }
 
+  auto &local_addr = server_->get_local_addr();
   ngtcp2_addr addr;
+  ngtcp2_conn_set_local_addr(
+      conn_, ngtcp2_addr_init(&addr, &local_addr.su, local_addr.len));
   ngtcp2_conn_set_remote_addr(conn_, ngtcp2_addr_init(&addr, sa, salen));
 
   ev_timer_again(loop_, &timer_);
@@ -1446,8 +1449,7 @@ int Handler::do_handshake(const uint8_t *data, size_t datalen) {
   }
 }
 
-void Handler::update_remote_addr() {
-  auto addr = ngtcp2_conn_get_remote_addr(conn_);
+void Handler::update_remote_addr(const ngtcp2_addr *addr) {
   remote_addr_.len = addr->len;
   memcpy(&remote_addr_.su, addr->addr, sizeof(addr->len));
 }
@@ -1457,8 +1459,11 @@ int Handler::feed_data(const sockaddr *sa, socklen_t salen, uint8_t *data,
   int rv;
 
   if (ngtcp2_conn_get_handshake_completed(conn_)) {
+    auto &local_addr = server_->get_local_addr();
     auto path = ngtcp2_path{
-        {},
+        {local_addr.len,
+         const_cast<uint8_t *>(
+             reinterpret_cast<const uint8_t *>(&local_addr.su))},
         {salen, const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(sa))}};
     rv = ngtcp2_conn_read_pkt(conn_, &path, data, datalen,
                               util::timestamp(loop_));
@@ -1470,7 +1475,6 @@ int Handler::feed_data(const sockaddr *sa, socklen_t salen, uint8_t *data,
       }
       return handle_error(rv);
     }
-    update_remote_addr();
   } else {
     rv = do_handshake(data, datalen);
     if (rv != 0) {
@@ -1547,9 +1551,11 @@ int Handler::on_write(bool retransmit) {
     return 0;
   }
 
+  PathStorage path;
+
   for (;;) {
-    auto n = ngtcp2_conn_write_pkt(conn_, nullptr, sendbuf_.wpos(), max_pktlen_,
-                                   util::timestamp(loop_));
+    auto n = ngtcp2_conn_write_pkt(conn_, &path.path, sendbuf_.wpos(),
+                                   max_pktlen_, util::timestamp(loop_));
     if (n < 0) {
       std::cerr << "ngtcp2_conn_write_pkt: " << ngtcp2_strerror(n) << std::endl;
       return handle_error(n);
@@ -1559,6 +1565,8 @@ int Handler::on_write(bool retransmit) {
     }
 
     sendbuf_.push(n);
+
+    update_remote_addr(&path.path.remote);
 
     auto rv = server_->send_packet(remote_addr_, sendbuf_);
     if (rv == NETWORK_ERR_SEND_NON_FATAL) {
@@ -1605,12 +1613,13 @@ int Handler::on_write_stream(Stream &stream) {
 
 int Handler::write_stream_data(Stream &stream, int fin, Buffer &data) {
   ssize_t ndatalen;
+  PathStorage path;
 
   for (;;) {
-    auto n =
-        ngtcp2_conn_write_stream(conn_, nullptr, sendbuf_.wpos(), max_pktlen_,
-                                 &ndatalen, stream.stream_id, fin, data.rpos(),
-                                 data.size(), util::timestamp(loop_));
+    auto n = ngtcp2_conn_write_stream(conn_, &path.path, sendbuf_.wpos(),
+                                      max_pktlen_, &ndatalen, stream.stream_id,
+                                      fin, data.rpos(), data.size(),
+                                      util::timestamp(loop_));
     if (n < 0) {
       switch (n) {
       case NGTCP2_ERR_STREAM_DATA_BLOCKED:
@@ -1635,6 +1644,8 @@ int Handler::write_stream_data(Stream &stream, int fin, Buffer &data) {
     }
 
     sendbuf_.push(n);
+
+    update_remote_addr(&path.path.remote);
 
     auto rv = server_->send_packet(remote_addr_, sendbuf_);
     if (rv != NETWORK_ERR_OK) {
@@ -2022,7 +2033,8 @@ void Server::close() {
   }
 }
 
-int Server::init(int fd) {
+int Server::init(int fd, const Address &local_addr) {
+  local_addr_ = local_addr;
   fd_ = fd;
 
   ev_io_set(&wev_, fd_, EV_WRITE);
@@ -2514,6 +2526,7 @@ int Server::verify_token(ngtcp2_cid *ocid, const ngtcp2_pkt_hd *hd,
 }
 
 int Server::send_packet(Address &remote_addr, Buffer &buf) {
+  std::cerr << "len=" << remote_addr.len << std::endl;
   if (debug::packet_lost(config.tx_loss_prob)) {
     if (!config.quiet) {
       std::cerr << "** Simulated outgoing packet loss **" << std::endl;
@@ -2538,7 +2551,10 @@ int Server::send_packet(Address &remote_addr, Buffer &buf) {
       return NETWORK_ERR_SEND_NON_FATAL;
     default:
       std::cerr << "sendto: " << strerror(errno) << std::endl;
-      return NETWORK_ERR_SEND_FATAL;
+      // TODO We have packet which is expected to fail to send (e.g.,
+      // path validation to old path).
+      buf.reset();
+      return NETWORK_ERR_OK;
     }
   }
 
@@ -2583,6 +2599,8 @@ std::map<std::string, std::unique_ptr<Handler>>::const_iterator Server::remove(
 }
 
 void Server::start_wev() { ev_io_start(loop_, &wev_); }
+
+const Address &Server::get_local_addr() const { return local_addr_; }
 
 namespace {
 int alpn_select_proto_cb(SSL *ssl, const unsigned char **out,
@@ -2786,7 +2804,8 @@ fail:
 } // namespace
 
 namespace {
-int create_sock(const char *addr, const char *port, int family) {
+int create_sock(Address &local_addr, const char *addr, const char *port,
+                int family) {
   addrinfo hints{};
   addrinfo *res, *rp;
   int rv;
@@ -2841,6 +2860,14 @@ int create_sock(const char *addr, const char *port, int family) {
     return -1;
   }
 
+  socklen_t len = sizeof(local_addr.su.storage);
+  rv = getsockname(fd, &local_addr.su.sa, &len);
+  if (rv == -1) {
+    std::cerr << "getsockname: " << strerror(errno) << std::endl;
+    return -1;
+  }
+  local_addr.len = len;
+
   return fd;
 }
 
@@ -2848,12 +2875,14 @@ int create_sock(const char *addr, const char *port, int family) {
 
 namespace {
 int serve(Server &s, const char *addr, const char *port, int family) {
-  auto fd = create_sock(addr, port, family);
+  Address local_addr;
+
+  auto fd = create_sock(local_addr, addr, port, family);
   if (fd == -1) {
     return -1;
   }
 
-  if (s.init(fd) != 0) {
+  if (s.init(fd, local_addr) != 0) {
     return -1;
   }
 

@@ -42,6 +42,8 @@
 #  include <arpa/inet.h>
 #endif // HAVE_ARPA_INET_H
 
+#include <array>
+
 namespace ngtcp2 {
 
 enum network_error {
@@ -61,6 +63,16 @@ union sockaddr_union {
 struct Address {
   socklen_t len;
   union sockaddr_union su;
+};
+
+struct PathStorage {
+  PathStorage() {
+    path.local.addr = buf.data();
+    path.remote.addr = buf.data() + 128;
+  }
+
+  ngtcp2_path path;
+  std::array<uint8_t, 256> buf;
 };
 
 } // namespace ngtcp2

@@ -31,6 +31,8 @@
 
 #include <ngtcp2/ngtcp2.h>
 
+void ngtcp2_addr_copy(ngtcp2_addr *dest, const ngtcp2_addr *src);
+
 /*
  * ngtcp2_addr_eq returns nonzero if |a| equals |b|.
  */

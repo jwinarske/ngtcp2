@@ -26,11 +26,27 @@
 
 #include <string.h>
 
-ngtcp2_path *ngtcp2_path_init(ngtcp2_path *path, const ngtcp2_addr *local,
-                              const ngtcp2_addr *remote) {
+#include "ngtcp2_addr.h"
+
+void ngtcp2_path_init(ngtcp2_path *path, const ngtcp2_addr *local,
+                      const ngtcp2_addr *remote) {
+  path->local = *local;
+  path->remote = *remote;
+}
+
+void ngtcp2_path_copy_addr(ngtcp2_path *path, const ngtcp2_addr *local,
+                           const ngtcp2_addr *remote) {
   memcpy(path->local.addr, local->addr, local->len);
   path->local.len = local->len;
   memcpy(path->remote.addr, remote->addr, remote->len);
   path->remote.len = remote->len;
-  return path;
+}
+
+void ngtcp2_path_copy(ngtcp2_path *dest, const ngtcp2_path *src) {
+  ngtcp2_path_copy_addr(dest, &src->local, &src->remote);
+}
+
+int ngtcp2_path_eq(const ngtcp2_path *a, const ngtcp2_path *b) {
+  return ngtcp2_addr_eq(&a->local, &b->local) &&
+         ngtcp2_addr_eq(&a->remote, &b->remote);
 }

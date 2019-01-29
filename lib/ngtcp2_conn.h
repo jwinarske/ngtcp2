@@ -43,6 +43,7 @@
 #include "ngtcp2_log.h"
 #include "ngtcp2_pq.h"
 #include "ngtcp2_cc.h"
+#include "ngtcp2_pv.h"
 
 typedef enum {
   /* Client specific handshake states */
@@ -126,10 +127,15 @@ typedef union {
 } ngtcp2_max_frame;
 
 typedef struct {
-  /* ts_expire is the timestamp when this PATH_CHALLENGE expires. */
-  ngtcp2_tstamp ts_expire;
+  ngtcp2_path path;
   uint8_t data[8];
+  uint8_t local_addrbuf[128];
+  uint8_t remote_addrbuf[128];
 } ngtcp2_path_challenge_entry;
+
+void ngtcp2_path_challenge_entry_init(ngtcp2_path_challenge_entry *pcent,
+                                      const ngtcp2_path *path,
+                                      const uint8_t *data);
 
 typedef enum {
   NGTCP2_CONN_FLAG_NONE = 0x00,
@@ -279,7 +285,9 @@ struct ngtcp2_conn {
   ngtcp2_idtr remote_uni_idtr;
   ngtcp2_rcvry_stat rcs;
   ngtcp2_cc_stat ccs;
-  ngtcp2_ringbuf tx_path_challenge;
+  /* TODO This should be linked-list; validation for new path and
+     validation for old path. */
+  ngtcp2_pv *pvs;
   ngtcp2_ringbuf rx_path_challenge;
   ngtcp2_log log;
   ngtcp2_default_cc cc;

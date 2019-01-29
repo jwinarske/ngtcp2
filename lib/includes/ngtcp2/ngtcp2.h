@@ -2455,6 +2455,10 @@ NGTCP2_EXTERN void ngtcp2_conn_set_remote_addr(ngtcp2_conn *conn,
  */
 NGTCP2_EXTERN const ngtcp2_addr *ngtcp2_conn_get_remote_addr(ngtcp2_conn *conn);
 
+NGTCP2_EXTERN int ngtcp2_conn_initiate_migration(ngtcp2_conn *conn,
+                                                 const ngtcp2_path *path,
+                                                 ngtcp2_tstamp ts);
+
 /**
  * @function
  *
