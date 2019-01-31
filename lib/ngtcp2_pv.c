@@ -162,3 +162,7 @@ ngtcp2_tstamp ngtcp2_pv_next_expiry(ngtcp2_pv *pv) {
   ent = ngtcp2_ringbuf_get(&pv->ents, 0);
   return ent->expiry;
 }
+
+int ngtcp2_pv_on_finish(ngtcp2_pv *pv, ngtcp2_frame_chain **pfrc) {
+  
+}

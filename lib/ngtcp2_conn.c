@@ -2815,7 +2815,11 @@ static ssize_t conn_write_path_challenge(ngtcp2_conn *conn, ngtcp2_path *path,
       /* TODO Do something based on action, calling callback, changing
          address etc */
       *ppv = pv->next;
+      rv = ngtcp2_pv_on_finish(pv, &pktns->frq);
       ngtcp2_pv_del(pv);
+      if (rv != 0) {
+        return rv;
+      }
 
       continue;
     }
@@ -3701,18 +3705,19 @@ static void conn_recv_path_challenge(ngtcp2_conn *conn, const ngtcp2_path *path,
   ngtcp2_path_challenge_entry_init(ent, path, fr->data);
 }
 
-static void conn_recv_path_response(ngtcp2_conn *conn, const ngtcp2_path *path,
-                                    ngtcp2_path_response *fr) {
+static int conn_recv_path_response(ngtcp2_conn *conn, const ngtcp2_path *path,
+                                   ngtcp2_path_response *fr) {
   int rv;
   ngtcp2_pv *pv = conn->pvs;
+  ngtcp2_pktns *pktns = &conn->pktns;
 
   if (!pv) {
-    return;
+    return 0;
   }
 
   rv = ngtcp2_pv_verify(pv, path, fr->data);
   if (rv != 0) {
-    return;
+    return 0;
   }
 
   if (!(pv->flags & NGTCP2_PV_FLAG_DONT_CARE)) {
@@ -3722,7 +3727,9 @@ static void conn_recv_path_response(ngtcp2_conn *conn, const ngtcp2_path *path,
 
   /* TODO Copy pv->path.local to conn->local_addr? */
   conn->pvs = pv->next;
+  rv = ngtcp2_pv_on_finish(pv, &pktns->frq);
   ngtcp2_pv_del(pv);
+  return rv;
 }
 
 /*
@@ -5441,6 +5448,22 @@ static int conn_validation_in_progress(ngtcp2_conn *conn,
   return 0;
 }
 
+static int conn_cancel_pv(ngtcp2_conn *conn) {
+  ngtcp2_pktns *pktns = &conn->pktns;
+  ngtcp2_pv *ppv, *pv;
+
+  for (ppv = &conn->frq; *ppv;) {
+    pv = *ppv;
+    *ppv = pv->next;
+    rv = ngtcp2_pv_on_finish(pv, &pktns->frq);
+    ngtcp2_pv_del(pv);
+    if (rv != 0) {
+      return rv;
+    }
+  }
+  return 0;
+}
+
 static void conn_reset_congestion_state(ngtcp2_conn *conn) {
   uint64_t bytes_in_flight;
 
@@ -5869,7 +5892,10 @@ static ssize_t conn_recv_pkt(ngtcp2_conn *conn, const ngtcp2_path *path,
       conn_recv_path_challenge(conn, path, &fr->path_challenge);
       break;
     case NGTCP2_FRAME_PATH_RESPONSE:
-      conn_recv_path_response(conn, path, &fr->path_response);
+      rv = conn_recv_path_response(conn, path, &fr->path_response);
+      if (rv != 0) {
+        return rv;
+      }
       break;
     case NGTCP2_FRAME_NEW_CONNECTION_ID:
       rv = conn_recv_new_connection_id(conn, &fr->new_connection_id);
@@ -5904,8 +5930,10 @@ static ssize_t conn_recv_pkt(ngtcp2_conn *conn, const ngtcp2_path *path,
         ngtcp2_log_info(
             &conn->log, NGTCP2_LOG_EVENT_PTV,
             "path migration is aborted because new migration has started");
-        delete_pv(conn->pvs);
-        conn->pvs = NULL;
+        rv = conn_cancel_pv(conn);
+        if (rv != 0) {
+          return rv;
+        }
       }
 
       ngtcp2_log_info(&conn->log, NGTCP2_LOG_EVENT_CON,
@@ -5933,7 +5961,9 @@ static ssize_t conn_recv_pkt(ngtcp2_conn *conn, const ngtcp2_path *path,
         pv_timeout = rcvry_stat_compute_pto_timeout(&conn->rcs);
         pv_timeout = ngtcp2_max(pv_timeout, 6 * NGTCP2_DEFAULT_INITIAL_RTT);
         rv = ngtcp2_pv_new(&conn->pvs->next, &old_path, &old_dcid, pv_timeout,
-                           NGTCP2_PV_FLAG_DONT_CARE, &conn->log, conn->mem);
+                           NGTCP2_PV_FLAG_DONT_CARE |
+                               NGTCP2_PV_FLAG_RETIRE_DCID_ON_FINISH,
+                           &conn->log, conn->mem);
         if (rv != 0) {
           return rv;
         }
@@ -8103,8 +8133,10 @@ int ngtcp2_conn_initiate_migration(ngtcp2_conn *conn, const ngtcp2_path *path,
 
   conn_reset_congestion_state(conn);
 
-  delete_pv(conn->pvs);
-  conn->pvs = NULL;
+  rv = conn_cancel_pv(conn->pvs);
+  if (rv != 0) {
+    return rv;
+  }
 
   return ngtcp2_pv_new(&conn->pvs, path, ngtcp2_conn_get_dcid(conn),
                        6 * NGTCP2_DEFAULT_INITIAL_RTT, NGTCP2_PV_FLAG_BLOCKING,

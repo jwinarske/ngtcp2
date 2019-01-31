@@ -51,6 +51,10 @@ typedef enum {
   /* NGTCP2_PV_FLAG_DONT_CARE indicates that the outcome of the path
      validation does not matter. */
   NGTCP2_PV_FLAG_DONT_CARE = 0x02,
+  /* NGTCP2_PV_FLAG_RETIRE_DCID_ON_FINISH indicates that DCID should
+     be retired after path validation finishes regardless of its
+     result. */
+  NGTCP2_PV_FLAG_RETIRE_DCID_ON_FINISH = 0x04,
 } ngtcp2_pv_flag;
 
 struct ngtcp2_pv;
@@ -71,6 +75,8 @@ struct ngtcp2_pv {
      succeed. */
   ngtcp2_duration timeout;
   ngtcp2_tstamp started_ts;
+  /* seq is the sequence number of dcid */
+  uint64_t seq;
   /* loss_count is the number of lost PATH_CHALLENGE */
   size_t loss_count;
   uint8_t flags;
@@ -115,5 +121,7 @@ void ngtcp2_pv_handle_entry_expiry(ngtcp2_pv *pv, ngtcp2_tstamp ts);
 int ngtcp2_pv_validation_timed_out(ngtcp2_pv *pv, ngtcp2_tstamp ts);
 
 ngtcp2_tstamp ngtcp2_pv_next_expiry(ngtcp2_pv *pv);
+
+int ngtcp2_pv_on_finish(ngtcp2_pv *pv, ngtcp2_frame_chain **pfrc);
 
 #endif /* NGTCP2_PV_H */
