@@ -27,7 +27,6 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <assert.h>
-#include <errno.h>
 
 #include "ngtcp2_str.h"
 #include "ngtcp2_vec.h"
